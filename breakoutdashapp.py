@@ -11,7 +11,7 @@ from niftystocks import ns
 st.set_page_config(page_title="Breakout Hub", page_icon="🚀", layout="wide")
 
 # Updated Base URL - Removing the /v2 from base to handle endpoints specifically
-UPSTOX_BASE = "https://upstox.com"
+UPSTOX_BASE = "https://api.upstox.com/v2/user/profile"
 
 # ----------------------------- Helpers & Mapping ----------------------------- #
 def get_v2_headers(token):
@@ -24,7 +24,7 @@ def get_v2_headers(token):
 @st.cache_data(ttl=86400)
 def get_mapping():
     """Downloads official Upstox Master to map NSE Tickers to Keys."""
-    url = "https://upstox.com"
+    url = "https://api.upstox.com/v2/user/profile"
     try:
         response = requests.get(url, timeout=20)
         content = gzip.decompress(response.content)
