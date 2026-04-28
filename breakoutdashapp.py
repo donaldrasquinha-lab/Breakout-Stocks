@@ -87,7 +87,7 @@ if source == "Upstox":
     token = st.sidebar.text_input("Access Token", type="password", help="Generated from Upstox Developer Portal")
     if token:
         try:
-            val_url = "https://upstox.com"
+            val_url = "https://api.upstox.com/v2"
             res = requests.get(val_url, headers={'Authorization': f'Bearer {token}'}, timeout=10)
             if res.status_code == 200:
                 st.sidebar.success(f"🟢 Connected: {res.json()['data']['user_name']}")
