@@ -157,5 +157,28 @@ if os.path.exists("breakout_results.csv"):
             st.info("No breakout stocks detected in the latest scan.")
     except:
         st.error("Error reading data file. Try running a new scan.")
+
+
+# Use the full V2 path for connection testing
+if source == "Upstox" and token:
+    try:
+        val_url = "https://api.upstox.com/v2/user/profile"
+        headers = {
+            'Accept': 'application/json',
+            'Authorization': f'Bearer {token}',
+            'Api-Version': '2.0'
+        }
+        res = requests.get(val_url, headers=headers, timeout=10)
+        
+        if res.status_code == 200:
+            st.sidebar.success(f"🟢 Connected: {res.json()['data']['user_name']}")
+            is_connected = True
+        elif res.status_code == 404:
+            st.sidebar.error("🔴 Connection Failed: 404 (Incorrect Endpoint URL)")
+        else:
+            st.sidebar.error(f"🔴 Connection Failed: {res.status_code}")
+    except requests.exceptions.RequestException:
+        st.sidebar.error("🔴 Network Error")
+
 else:
     st.warning("No data found. Select a source and click 'Run Nifty 500 Scan' to begin.")
