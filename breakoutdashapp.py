@@ -8,46 +8,31 @@ from datetime import datetime, timedelta
 from niftystocks import ns
 
 # ----------------------------- Page Config ----------------------------- #
-st.set_page_config(page_title="Upstox Breakout Hub", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="Breakout Hub", page_icon="🚀", layout="wide")
+
+# Updated Base URL - Removing the /v2 from base to handle endpoints specifically
 UPSTOX_BASE = "https://upstox.com"
 
-# ----------------------------- Helpers ----------------------------- #
+# ----------------------------- Helpers & Mapping ----------------------------- #
 def get_v2_headers(token):
-    return {"Accept": "application/json", "Api-Version": "2.0", "Authorization": f"Bearer {token}"}
+    """Mandatory headers for Upstox V2 API."""
+    return {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}"
+    }
 
 @st.cache_data(ttl=86400)
 def get_mapping():
-    """Downloads official Upstox Master. Critical for the scan to work."""
+    """Downloads official Upstox Master to map NSE Tickers to Keys."""
     url = "https://upstox.com"
     try:
-        response = requests.get(url, timeout=30)
+        response = requests.get(url, timeout=20)
         content = gzip.decompress(response.content)
         df = pd.read_json(content)
-        # Filter for Equity segment and create mapping
-        df = df[df['segment'] == 'NSE_EQ']
-        return dict(zip(df['trading_symbol'], df['instrument_key']))
+        return dict(zip(df[df['segment'] == 'NSE_EQ']['trading_symbol'], df['instrument_key']))
     except Exception as e:
-        st.error(f"Mapping Download Failed: {e}")
+        st.error(f"Mapping Error: {e}")
         return {}
-
-def fetch_upstox(token, key):
-    """Historical data fetcher with robust error handling."""
-    if not key: return None
-    to_date = datetime.now().strftime('%Y-%m-%d')
-    from_date = (datetime.now() - timedelta(days=250)).strftime('%Y-%m-%d')
-    safe_key = key.replace('|', '%7C')
-    url = f"{UPSTOX_BASE}/historical-candle/{safe_key}/day/{to_date}/{from_date}"
-    try:
-        res = requests.get(url, headers=get_v2_headers(token), timeout=15)
-        if res.status_code == 200:
-            data = res.json().get('data', {}).get('candles', [])
-            df = pd.DataFrame(data, columns=["Date","Open","High","Low","Close","Volume","OI"])
-            df["Date"] = pd.to_datetime(df["Date"])
-            df = df.sort_values("Date").set_index("Date")
-            return df.apply(pd.to_numeric)
-        return None
-    except:
-        return None
 
 # ----------------------------- Data Fetchers ----------------------------- #
 def fetch_upstox(token, key):
