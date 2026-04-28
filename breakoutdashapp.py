@@ -5,29 +5,49 @@ import time
 import os
 import gzip
 from datetime import datetime, timedelta
-import plotly.graph_objects as go
 from niftystocks import ns
 
-# --- 1. CONFIG ---
-st.set_page_config(page_title="Breakout Hub", page_icon="🚀", layout="wide")
-UPSTOX_BASE = "https://api.upstox.com/v2"
+# ----------------------------- Page Config ----------------------------- #
+st.set_page_config(page_title="Upstox Breakout Hub", page_icon="🚀", layout="wide")
+UPSTOX_BASE = "https://upstox.com"
 
-# --- 2. ROBUST HEADERS ---
+# ----------------------------- Helpers ----------------------------- #
 def get_v2_headers(token):
-    return {
-        "Accept": "application/json",
-        "Api-Version": "2.0",  # MANDATORY for V2
-        "Authorization": f"Bearer {token}"
-    }
+    return {"Accept": "application/json", "Api-Version": "2.0", "Authorization": f"Bearer {token}"}
 
 @st.cache_data(ttl=86400)
 def get_mapping():
+    """Downloads official Upstox Master. Critical for the scan to work."""
     url = "https://upstox.com"
     try:
-        df = pd.read_json(gzip.decompress(requests.get(url, timeout=20).content))
-        return dict(zip(df[df['segment'] == 'NSE_EQ']['trading_symbol'], df['instrument_key']))
-    except:
+        response = requests.get(url, timeout=30)
+        content = gzip.decompress(response.content)
+        df = pd.read_json(content)
+        # Filter for Equity segment and create mapping
+        df = df[df['segment'] == 'NSE_EQ']
+        return dict(zip(df['trading_symbol'], df['instrument_key']))
+    except Exception as e:
+        st.error(f"Mapping Download Failed: {e}")
         return {}
+
+def fetch_upstox(token, key):
+    """Historical data fetcher with robust error handling."""
+    if not key: return None
+    to_date = datetime.now().strftime('%Y-%m-%d')
+    from_date = (datetime.now() - timedelta(days=250)).strftime('%Y-%m-%d')
+    safe_key = key.replace('|', '%7C')
+    url = f"{UPSTOX_BASE}/historical-candle/{safe_key}/day/{to_date}/{from_date}"
+    try:
+        res = requests.get(url, headers=get_v2_headers(token), timeout=15)
+        if res.status_code == 200:
+            data = res.json().get('data', {}).get('candles', [])
+            df = pd.DataFrame(data, columns=["Date","Open","High","Low","Close","Volume","OI"])
+            df["Date"] = pd.to_datetime(df["Date"])
+            df = df.sort_values("Date").set_index("Date")
+            return df.apply(pd.to_numeric)
+        return None
+    except:
+        return None
 
 # ----------------------------- Data Fetchers ----------------------------- #
 def fetch_upstox(token, key):
