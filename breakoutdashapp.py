@@ -91,7 +91,7 @@ if source == "Upstox":
             elif res.status_code == 401:
                 st.sidebar.error("🔴 Token Expired (Generated before 3:30 AM IST)")
             else:
-                st.sidebar.error("🔴 Connection Failed: {res.status_code}")
+                st.sidebar.error("f🔴 Connection Failed: {res.status_code}")
         except:
             st.sidebar.error("🔴 Network/Timeout Error")
 else:
