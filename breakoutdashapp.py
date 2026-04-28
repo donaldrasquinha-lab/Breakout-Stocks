@@ -5,55 +5,43 @@ import time
 import os
 import gzip
 from datetime import datetime, timedelta
+import plotly.graph_objects as go
 from niftystocks import ns
 
-# ----------------------------- Page Config ----------------------------- #
+# --- 1. CONFIG ---
 st.set_page_config(page_title="Breakout Hub", page_icon="🚀", layout="wide")
+UPSTOX_BASE = "https://api.upstox.com/v2"
 
-# Updated Base URL - Removing the /v2 from base to handle endpoints specifically
-UPSTOX_BASE = "https://api.upstox.com/v2/user/profile"
-
-# ----------------------------- Helpers & Mapping ----------------------------- #
+# --- 2. ROBUST HEADERS ---
 def get_v2_headers(token):
-    """Mandatory headers for Upstox V2 API."""
     return {
         "Accept": "application/json",
+        "Api-Version": "2.0",  # MANDATORY for V2
         "Authorization": f"Bearer {token}"
     }
 
 @st.cache_data(ttl=86400)
 def get_mapping():
-    """Downloads official Upstox Master to map NSE Tickers to Keys."""
-    url = "https://api.upstox.com/v2/user/profile"
+    url = "https://upstox.com"
     try:
-        response = requests.get(url, timeout=20)
-        content = gzip.decompress(response.content)
-        df = pd.read_json(content)
+        df = pd.read_json(gzip.decompress(requests.get(url, timeout=20).content))
         return dict(zip(df[df['segment'] == 'NSE_EQ']['trading_symbol'], df['instrument_key']))
-    except Exception as e:
-        st.error(f"Mapping Error: {e}")
+    except:
         return {}
 
-# ----------------------------- Data Fetchers ----------------------------- #
+# --- 3. DATA FETCHERS ---
 def fetch_upstox(token, key):
-    """Fetches historical OHLC data from Upstox V2."""
-    if not key: return None
-    
     to_date = datetime.now().strftime('%Y-%m-%d')
     from_date = (datetime.now() - timedelta(days=250)).strftime('%Y-%m-%d')
-    
-    # URL encode the instrument key
+    # Key must be URL encoded (e.g. | becomes %7C)
     safe_key = key.replace('|', '%7C')
     url = f"{UPSTOX_BASE}/historical-candle/{safe_key}/day/{to_date}/{from_date}"
-    
     try:
-        res = requests.get(url, headers=get_v2_headers(token), timeout=25)
+        res = requests.get(url, headers=get_v2_headers(token), timeout=30)
         if res.status_code == 200:
-            data = res.json().get('data', {}).get('candles', [])
-            df = pd.DataFrame(data, columns=["Date","Open","High","Low","Close","Volume","OI"])
+            df = pd.DataFrame(res.json()['data']['candles'], columns=["Date","Open","High","Low","Close","Volume","OI"])
             df["Date"] = pd.to_datetime(df["Date"])
-            df = df.sort_values("Date").set_index("Date")
-            return df.apply(pd.to_numeric)
+            return df.sort_values("Date").set_index("Date").apply(pd.to_numeric)
         return None
     except:
         return None
@@ -68,6 +56,7 @@ def fetch_yahoo(ticker):
         return None
     except:
         return None
+
 # --- 4. SIDEBAR & STATUS ---
 st.sidebar.title("📡 Connection Settings")
 source = st.sidebar.selectbox("Select Data Source", ["Yahoo Finance", "Upstox"])
@@ -97,49 +86,42 @@ else:
     st.sidebar.success("🟢 Connected: Yahoo Finance")
     is_connected = True
 
-# ----------------------------- Main Dashboard ----------------------------- #
+# --- 5. MAIN DASHBOARD ---
 st.title("📈 Smart Breakout Hub")
+st.markdown("Scan Nifty 500 stocks for 20-day high breakouts with volume surges.")
 
 if st.sidebar.button("🔍 Run Nifty 500 Scan") and is_connected:
     mapping = get_mapping()
     tickers = ns.get_nifty500_with_ns()
     results = []
     
-    # Manual Override for Symbol Changes
-    fixes = {"L&TFH.NS": "LTF", "LAXMIMACH.NS": "LAXMACH"}
-    
     pb = st.progress(0)
-    status = st.empty()
+    status_text = st.empty()
     
     for i, t in enumerate(tickers):
-        symbol = fixes.get(t, t.replace(".NS", ""))
-        status.text(f"Scanning {symbol}...")
+        symbol = t.replace(".NS", "")
+        status_text.text(f"Scanning {symbol}...")
         
-        df = None
-        if source == "Upstox":
-            key = mapping.get(symbol)
-            if key: df = fetch_upstox(token, key)
-            else: continue # Gracefully skip missing keys
-        else:
-            import yfinance as yf
-            try:
-                df = yf.download(t, period='1y', interval='1d', progress=False)
-                if not df.empty: df.columns = [c.capitalize() for c in df.columns]
-            except: continue
+        df = fetch_yahoo(t) if source == "Yahoo Finance" else fetch_upstox(token, mapping.get(symbol))
         
-        if df is not None and not df.empty and len(df) > 50:
-            df['Resist'] = df['High'].rolling(20).max().shift(1)
-            df['Avg_Vol'] = df['Volume'].rolling(20).mean().shift(1)
+        if df is not None and len(df) > 50:
             last = df.iloc[-1]
-            if last['Close'] > last['Resist'] and last['Volume'] > (last['Avg_Vol'] * vol_multiplier):
-                results.append({"Ticker": symbol, "Price": round(float(last['Close']), 2), "Vol_Ratio": round(float(last['Volume'] / last['Avg_Vol']), 2)})
+            prev_high = df['High'].rolling(20).max().shift(1).iloc[-1]
+            avg_vol = df['Volume'].rolling(20).mean().shift(1).iloc[-1]
+            
+            if last['Close'] > prev_high and last['Volume'] > (avg_vol * 1.5):
+                results.append({
+                    "Ticker": symbol,
+                    "Price": round(float(last['Close']), 2),
+                    "Vol_Ratio": round(float(last['Volume'] / avg_vol), 2)
+                })
         
+        if source == "Yahoo Finance": time.sleep(0.3)
         pb.progress((i + 1) / len(tickers))
     
-    status.success(f"✅ Scan Finished! Found {len(results)} breakouts.")
+    status_text.success(f"✅ Found {len(results)} breakouts!")
     pd.DataFrame(results, columns=["Ticker", "Price", "Vol_Ratio"]).to_csv("breakout_results.csv", index=False)
     st.rerun()
-
 
 # --- 6. DISPLAY ---
 CSV_FILE = "breakout_results.csv"
