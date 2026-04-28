@@ -29,19 +29,26 @@ def get_mapping():
     except:
         return {}
 
-# --- 3. DATA FETCHERS ---
+# ----------------------------- Data Fetchers ----------------------------- #
 def fetch_upstox(token, key):
+    """Fetches historical OHLC data from Upstox V2."""
+    if not key: return None
+    
     to_date = datetime.now().strftime('%Y-%m-%d')
     from_date = (datetime.now() - timedelta(days=250)).strftime('%Y-%m-%d')
-    # Key must be URL encoded (e.g. | becomes %7C)
+    
+    # URL encode the instrument key
     safe_key = key.replace('|', '%7C')
     url = f"{UPSTOX_BASE}/historical-candle/{safe_key}/day/{to_date}/{from_date}"
+    
     try:
-        res = requests.get(url, headers=get_v2_headers(token), timeout=30)
+        res = requests.get(url, headers=get_v2_headers(token), timeout=25)
         if res.status_code == 200:
-            df = pd.DataFrame(res.json()['data']['candles'], columns=["Date","Open","High","Low","Close","Volume","OI"])
+            data = res.json().get('data', {}).get('candles', [])
+            df = pd.DataFrame(data, columns=["Date","Open","High","Low","Close","Volume","OI"])
             df["Date"] = pd.to_datetime(df["Date"])
-            return df.sort_values("Date").set_index("Date").apply(pd.to_numeric)
+            df = df.sort_values("Date").set_index("Date")
+            return df.apply(pd.to_numeric)
         return None
     except:
         return None
@@ -56,7 +63,6 @@ def fetch_yahoo(ticker):
         return None
     except:
         return None
-
 # --- 4. SIDEBAR & STATUS ---
 st.sidebar.title("📡 Connection Settings")
 source = st.sidebar.selectbox("Select Data Source", ["Yahoo Finance", "Upstox"])
