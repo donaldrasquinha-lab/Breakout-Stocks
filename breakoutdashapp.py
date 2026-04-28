@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,9 +11,11 @@ from niftystocks import ns
 import yfinance as yf
 
 # ----------------------------- Page Config ----------------------------- #
-st.set_page_config(page_title="Upstox V2 Breakout Hub", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="Multi-Source Breakout Hub", page_icon="🚀", layout="wide")
 
-UPSTOX_BASE = "https://api.upstox.com/v2"
+UPSTOX_BASE = "https://api.upstox.com/v"
+FILE_YAHOO = "breakout_yahoo_results.csv"
+FILE_UPSTOX = "breakout_upstox_results.csv"
 
 # ----------------------------- Helpers ----------------------------- #
 def upstox_headers(token: str) -> dict:
@@ -33,7 +34,7 @@ def verify_token(token: str):
 
 @st.cache_data(ttl=86400)
 def get_upstox_master_mapping():
-    url = "https://api.upstox.com/v2"
+    url = "https://api.upstox.com/v"
     try:
         response = requests.get(url, timeout=30)
         content = gzip.decompress(response.content)
@@ -44,7 +45,7 @@ def get_upstox_master_mapping():
 
 # ----------------------------- Data Fetchers ----------------------------- #
 def fetch_upstox_v2(token, key):
-    if not key: return None # Safety Check
+    if not key: return None 
     to_date = datetime.now().strftime('%Y-%m-%d')
     from_date = (datetime.now() - timedelta(days=250)).strftime('%Y-%m-%d')
     safe_key = key.replace('|', '%7C')
@@ -80,7 +81,6 @@ def identify_breakout(df):
     
     last = df.iloc[-1]
     try:
-        # Convert to float to avoid Series comparison errors
         close = float(last['Close'])
         resist = float(last['Resist'])
         vol = float(last['Volume'])
@@ -99,6 +99,9 @@ def identify_breakout(df):
 st.sidebar.title("📡 Connection Settings")
 source = st.sidebar.selectbox("Select Data Provider", ["Yahoo Finance", "Upstox"])
 
+# Determine which file to use as "memory"
+current_file = FILE_YAHOO if source == "Yahoo Finance" else FILE_UPSTOX
+
 is_connected = False
 token = ""
 
@@ -109,27 +112,26 @@ if source == "Upstox":
             st.sidebar.success("🟢 Connected to Upstox V2")
             is_connected = True
         else:
-            st.sidebar.error("🔴 Token Expired or Invalid")
+            st.sidebar.error("🔴 Token Expired/Invalid")
 else:
     st.sidebar.success("🟢 Connected: Yahoo Finance")
     is_connected = True
 
 # ----------------------------- Dashboard ----------------------------- #
-st.title("📈 Smart Breakout Hub")
+st.title(f"📈 {source} Breakout Hub")
+st.caption(f"Currently viewing data from: {current_file}")
 
 if st.sidebar.button("🔍 Run Nifty 500 Scan") and is_connected:
     mapping = get_upstox_master_mapping()
     tickers = ns.get_nifty500_with_ns()
     results = []
     
-    # Known Symbol Fixes
     fixes = {"L&TFH.NS": "LTF", "IDFC.NS": "IDFCFIRSTB", "INOXLEISUR.NS": "PVRINOX"}
     
     pb = st.progress(0)
     status = st.empty()
     
     for i, t in enumerate(tickers):
-        # Apply symbol fixes
         symbol = fixes.get(t, t.replace(".NS", ""))
         status.text(f"Scanning {symbol}...")
         
@@ -138,12 +140,11 @@ if st.sidebar.button("🔍 Run Nifty 500 Scan") and is_connected:
             df = fetch_yahoo(t)
             time.sleep(0.3)
         else:
-            # FIX: Only fetch if key exists in mapping
             key = mapping.get(symbol)
             if key:
                 df = fetch_upstox_v2(token, key)
             else:
-                continue # Skip stocks not found in Upstox Master
+                continue 
         
         signal = identify_breakout(df)
         if signal:
@@ -153,20 +154,22 @@ if st.sidebar.button("🔍 Run Nifty 500 Scan") and is_connected:
         pb.progress((i + 1) / len(tickers))
     
     status.success(f"✅ Found {len(results)} breakouts!")
-    pd.DataFrame(results, columns=["Ticker", "Price", "Vol_Ratio"]).to_csv("breakout_results.csv", index=False)
+    # Save to the specific provider memory
+    pd.DataFrame(results, columns=["Ticker", "Price", "Vol_Ratio"]).to_csv(current_file, index=False)
     st.rerun()
 
-# ----------------------------- Display ----------------------------- #
-if os.path.exists("breakout_results.csv"):
+# ----------------------------- Display Memory ----------------------------- #
+st.divider()
+if os.path.exists(current_file):
     try:
-        df_res = pd.read_csv("breakout_results.csv")
+        df_res = pd.read_csv(current_file)
         if not df_res.empty:
-            st.subheader("Latest Detected Breakouts")
+            st.subheader(f"Latest {source} Memories")
             st.dataframe(df_res.style.background_gradient(subset=['Vol_Ratio'], cmap='Greens'), use_container_width=True)
-            st.download_button("📥 Download Results", df_res.to_csv(index=False), "breakouts.csv")
+            st.download_button(f"📥 Download {source} CSV", df_res.to_csv(index=False), f"{source}_breakouts.csv")
         else:
-            st.info("No breakouts identified. Try another scan later.")
+            st.info(f"The {source} memory is currently empty. Run a scan!")
     except:
-        st.error("Error loading data file.")
+        st.error(f"Error loading {current_file}.")
 else:
-    st.warning("No data found. Select a provider and run a scan.")
+    st.warning(f"No {source} database found. Start a scan to create one.")
