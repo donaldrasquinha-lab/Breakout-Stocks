@@ -2,29 +2,35 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import time
+import os
+from datetime import datetime
 from niftystocks import ns
 
-# 1. Breakout Logic
+# --- 1. THE SCREENER LOGIC ---
 def breakout_screener(df):
     df = df.copy()
+    # 20-day Resistance & Volume Average
     df['Resist'] = df['High'].rolling(20).max().shift(1)
     df['Avg_Vol'] = df['Volume'].rolling(20).mean().shift(1)
     
+    # RSI (14-day)
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
     df['RSI'] = 100 - (100 / (1 + (gain / loss)))
     
+    # Moving Averages
     df['SMA_50'] = df['Close'].rolling(50).mean()
     df['SMA_200'] = df['Close'].rolling(200).mean()
 
+    # Master Condition: Price > Resistance + High Vol + RSI > 50 + Upward Trend
     is_break = (df['Close'] > df['Resist']) & (df['Volume'] > df['Avg_Vol'] * 1.5)
     is_trend = (df['RSI'] > 50) & (df['Close'] > df['SMA_50']) & (df['SMA_50'] > df['SMA_200'])
     
     df['Signal'] = is_break & is_trend
     return df[df['Signal'] == True]
 
-# 2. Live Scanning Function
+# --- 2. THE SCANNER ENGINE ---
 def run_live_scan(ticker_list):
     found = []
     progress_bar = st.progress(0)
@@ -33,8 +39,12 @@ def run_live_scan(ticker_list):
     for i, ticker in enumerate(ticker_list):
         status_text.text(f"Scanning {ticker} ({i+1}/{len(ticker_list)})...")
         try:
-            time.sleep(0.2) # Faster for live feedback
+            # Rate limiting for Yahoo Finance
+            time.sleep(0.5) 
             df = yf.download(ticker, period='1y', interval='1d', progress=False)
+            
+            if len(df) < 200: continue
+            
             results = breakout_screener(df)
             
             if not results.empty:
@@ -43,68 +53,56 @@ def run_live_scan(ticker_list):
                     "Ticker": ticker,
                     "Price": round(float(latest['Close']), 2),
                     "RSI": round(float(latest['RSI']), 2),
-                    "Vol_Ratio": round(float(latest['Volume'] / latest['Avg_Vol']), 2)
+                    "Vol_Ratio": round(float(latest['Volume'] / latest['Avg_Vol']), 2),
+                    "Scan_Time": datetime.now().strftime("%Y-%m-%d %H:%M")
                 })
-        except: continue
+        except Exception:
+            continue
         progress_bar.progress((i + 1) / len(ticker_list))
     
     status_text.text("✅ Scan Complete!")
     return pd.DataFrame(found)
 
-# 3. UI Layout
+# --- 3. THE DASHBOARD UI ---
 st.set_page_config(page_title="Nifty Breakout Tracker", layout="wide")
-st.title("🚀 Real-Time Breakout Screener")
+st.title("🚀 Nifty 500 Breakout Screener")
 
-# Sidebar for controls
-st.sidebar.header("Controls")
+# Sidebar Controls
+st.sidebar.header("Control Panel")
+st.sidebar.info("Scheduled scans run at 3:30 PM IST. Use the button below for a live check.")
+
 if st.sidebar.button('🔍 Run Live Scan Now'):
-    # Get Nifty 500 tickers (Limited to first 50 for speed in live UI)
-    tickers = ns.get_nifty500_with_ns()[:50] 
-    live_df = run_live_scan(tickers)
-    live_df.to_csv("breakout_results.csv", index=False)
-    st.sidebar.success(f"Found {len(live_df)} stocks!")
+    # Using Nifty 500 list
+    tickers = ns.get_nifty500_with_ns()
+    # Speed tip: For testing, use tickers[:50]
+    live_results = run_live_scan(tickers)
+    live_results.to_csv("breakout_results.csv", index=False)
+    st.rerun()
 
-# Display Data from CSV (either from GitHub or Live Scan)
-try:
-    df = pd.read_csv("breakout_results.csv")
-    st.subheader("Latest Detected Breakouts")
-    st.dataframe(df.style.highlight_max(axis=0, subset=['Vol_Ratio']), use_container_width=True)
-    
-    # Download Button for the current results
-    st.download_button("📥 Download Results as CSV", 
-                       data=df.to_csv(index=False), 
-                       file_name="breakouts.csv", 
-                       mime="text/csv")
-except FileNotFoundError:
-    st.info("No data available. Click 'Run Live Scan' or wait for the scheduled automation.")
-import os
+# --- 4. DATA DISPLAY & ERROR HANDLING ---
+CSV_FILE = "breakout_results.csv"
 
-# ... (rest of your imports and functions) ...
-
-# 3. UI Layout
-st.set_page_config(page_title="Nifty Breakout Tracker", layout="wide")
-st.title("🚀 Real-Time Breakout Screener")
-
-# Sidebar for controls
-if st.sidebar.button('🔍 Run Live Scan Now'):
-    tickers = ns.get_nifty500_with_ns()[:50] 
-    live_df = run_live_scan(tickers)
-    live_df.to_csv("breakout_results.csv", index=False)
-    st.rerun() # Refresh the app to show new data
-
-# Safe way to load the CSV
-if os.path.exists("breakout_results.csv"):
-    df = pd.read_csv("breakout_results.csv")
-    
-    # Check if the file is empty or has data
-    if not df.empty:
-        st.subheader("Latest Detected Breakouts")
-        st.dataframe(df.style.highlight_max(axis=0, subset=['Vol_Ratio']), use_container_width=True)
+if os.path.exists(CSV_FILE):
+    try:
+        df = pd.read_csv(CSV_FILE)
         
-        st.download_button("📥 Download Results", 
-                           data=df.to_csv(index=False), 
-                           file_name="breakouts.csv")
-    else:
-        st.info("The scan completed, but no breakout stocks were found today.")
+        if not df.empty:
+            # Stats
+            total_found = len(df)
+            st.metric("Total Breakouts Found", total_found)
+            
+            # Formatting and Display
+            st.subheader("Detected Stocks")
+            styled_df = df.style.highlight_max(axis=0, subset=['Vol_Ratio'], color='#1d3557')
+            st.dataframe(styled_df, use_container_width=True)
+            
+            # Download link
+            csv_data = df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Results CSV", data=csv_data, file_name="breakouts.csv", mime="text/csv")
+        else:
+            st.info("No stocks currently meet the breakout criteria.")
+            
+    except Exception as e:
+        st.error(f"Error reading data: {e}")
 else:
-    st.warning("⚠️ No data file found. Please click 'Run Live Scan' in the sidebar to generate the first report.")
+    st.warning("⚠️ No breakout data found. Please run a 'Live Scan' from the sidebar to generate results.")
