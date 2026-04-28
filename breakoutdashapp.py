@@ -9,7 +9,7 @@ from niftystocks import ns
 
 # ----------------------------- Page Config ----------------------------- #
 st.set_page_config(page_title="Breakout Hub", page_icon="🚀", layout="wide")
-UPSTOX_BASE = "https://upstox.com"
+UPSTOX_BASE = "https://api.upstox.com/v2"
 
 # ----------------------------- Helpers ----------------------------- #
 def get_v2_headers(token):
