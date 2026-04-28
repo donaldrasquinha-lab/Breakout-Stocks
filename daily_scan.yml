@@ -1,0 +1,37 @@
+name: Daily Stock Breakout Scan
+
+on:
+  schedule:
+    # 10:00 AM UTC is 3:30 PM IST (Market Close)
+    - cron: '0 10 * * 1-5'
+  workflow_dispatch: # Allows you to run it manually from the "Actions" tab
+
+jobs:
+  scan_and_save:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Crucial: Allows the action to write the CSV to your repo
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install pandas requests yfinance niftystocks plotly
+
+      - name: Run Breakout Scanner
+        run: python scanner.py # Ensure your python script is named scanner.py
+
+      - name: Commit and Push CSV
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add breakout_results.csv
+          git commit -m "Auto-update breakout stocks: $(date +'%Y-%m-%d')" || exit 0
+          git push
