@@ -109,20 +109,25 @@ if st.sidebar.button("🔍 Run Nifty 500 Scan") and is_connected:
             prev_high = df['High'].rolling(20).max().shift(1).iloc[-1]
             avg_vol = df['Volume'].rolling(20).mean().shift(1).iloc[-1]
             
-            if last['Close'] > prev_high and last['Volume'] > (avg_vol * 1.5):
-                results.append({
-                    "Ticker": symbol,
-                    "Price": round(float(last['Close']), 2),
-                    "Vol_Ratio": round(float(last['Volume'] / avg_vol), 2)
-                })
+         for i, t in enumerate(tickers):
+        symbol = t.replace(".NS", "")
+        status_text.text(f"Scanning {symbol}...")
         
-        if source == "Yahoo Finance": time.sleep(0.3)
-        pb.progress((i + 1) / len(tickers))
-    
-    status_text.success(f"✅ Found {len(results)} breakouts!")
-    pd.DataFrame(results, columns=["Ticker", "Price", "Vol_Ratio"]).to_csv("breakout_results.csv", index=False)
-    st.rerun()
-
+        df = None
+        if source == "Yahoo Finance":
+            df = fetch_yahoo(t)
+            time.sleep(0.3)
+        else:
+            # FIX: Check if the symbol exists in the mapping first
+            key = mapping.get(symbol)
+            if key: # Only proceed if key is NOT None
+                df = fetch_upstox(token, key)
+            else:
+                # Log or skip if symbol isn't found in Upstox master
+                continue
+        
+        # Analyze Breakout (Only if data was successfully fetched)
+        if df is not None and not df.empty and len(df) > 50:
 # --- 6. DISPLAY ---
 CSV_FILE = "breakout_results.csv"
 if os.path.exists(CSV_FILE):
