@@ -159,17 +159,47 @@ if st.sidebar.button("🔍 Run Nifty 500 Scan") and is_connected:
     st.rerun()
 
 # ----------------------------- Display Memory ----------------------------- #
-st.divider()
-if os.path.exists(current_file):
+import requests
+import pandas as pd
+import os
+from datetime import datetime, timedelta
+
+# Configuration
+UPSTOX_BASE = "https://api.upstox.com/v2"
+# Securely access token from environment variables
+ACCESS_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN") 
+
+def fetch_upstox_data(instrument_key):
+    to_date = datetime.now().strftime('%Y-%m-%d')
+    from_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+    url = f"{UPSTOX_BASE}/historical-candle/{instrument_key}/day/{to_date}/{from_date}"
+    
+    headers = {
+        'Accept': 'application/json',
+        'Authorization': f'Bearer {ACCESS_TOKEN}'
+    }
+    
     try:
-        df_res = pd.read_csv(current_file)
-        if not df_res.empty:
-            st.subheader(f"Latest {source} Memories")
-            st.dataframe(df_res.style.background_gradient(subset=['Vol_Ratio'], cmap='Greens'), use_container_width=True)
-            st.download_button(f"📥 Download {source} CSV", df_res.to_csv(index=False), f"{source}_breakouts.csv")
-        else:
-            st.info(f"The {source} memory is currently empty. Run a scan!")
-    except:
-        st.error(f"Error loading {current_file}.")
-else:
-    st.warning(f"No {source} database found. Start a scan to create one.")
+        response = requests.get(url, headers=headers, timeout=15)
+        if response.status_code == 200:
+            candles = response.json().get('data', {}).get('candles', [])
+            df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'oi'])
+            return df
+        return pd.DataFrame()
+    except Exception as e:
+        print(f"Error fetching {instrument_key}: {e}")
+        return pd.DataFrame()
+
+# Example: Pulling for a specific list
+tickers = ["NSE_EQ|INE002A01018", "NSE_EQ|INE467B01029"] # Reliance, TCS
+all_data = []
+
+for ticker in tickers:
+    data = fetch_upstox_data(ticker)
+    if not data.empty:
+        data['Ticker'] = ticker
+        all_data.append(data)
+
+if all_data:
+    final_df = pd.concat(all_data)
+    final_df.to_csv("upstox_stock_data.csv", index=False)
