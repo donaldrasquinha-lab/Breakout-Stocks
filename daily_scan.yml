@@ -1,9 +1,0 @@
-# ... (previous steps: Checkout, Setup Python, Install, Run Scanner)
-
-      - name: Commit and Push CSV
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add breakout_results.csv
-          git commit -m "Update breakout results for $(date +%Y-%m-%d)" || echo "No changes to commit"
-          git push
