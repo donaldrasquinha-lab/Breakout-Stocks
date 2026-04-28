@@ -10,7 +10,9 @@ from niftystocks import ns
 
 # ----------------------------- Page Config ----------------------------- #
 st.set_page_config(page_title="Breakout Hub", page_icon="🚀", layout="wide")
-UPSTOX_BASE = "https://api.upstox.com/v2/user/profile"
+
+# Ensure base URL is correct for V2
+UPSTOX_BASE = "https://upstox.com"
 
 # ----------------------------- Helpers & Mapping ----------------------------- #
 def get_v2_headers(token):
@@ -24,7 +26,7 @@ def get_v2_headers(token):
 @st.cache_data(ttl=86400)
 def get_mapping():
     """Downloads official Upstox Master to map NSE Tickers to Keys."""
-    url = "https://api.upstox.com/v2/user/profile"
+    url = "https://upstox.com"
     try:
         response = requests.get(url, timeout=20)
         content = gzip.decompress(response.content)
@@ -37,7 +39,7 @@ def get_mapping():
 
 # ----------------------------- Data Fetchers ----------------------------- #
 def fetch_upstox(token, key):
-    """Fetches historical OHLC data from Upstox."""
+    """Fetches historical OHLC data from Upstox V2."""
     if not key: return None
     
     to_date = datetime.now().strftime('%Y-%m-%d')
@@ -45,6 +47,7 @@ def fetch_upstox(token, key):
     
     # URL encode the instrument key (e.g. | to %7C)
     safe_key = key.replace('|', '%7C')
+    # Correct V2 historical candle endpoint
     url = f"{UPSTOX_BASE}/historical-candle/{safe_key}/day/{to_date}/{from_date}"
     
     try:
@@ -82,25 +85,30 @@ if source == "Upstox":
     token = st.sidebar.text_input("Access Token", type="password", help="Generate fresh daily after 3:30 AM IST")
     if token:
         try:
-            # Pings Profile endpoint to verify connection
-            res = requests.get(f"{UPSTOX_BASE}/user/profile", headers=get_v2_headers(token), timeout=10)
+            # Correct V2 Profile endpoint to avoid 404
+            profile_url = f"{UPSTOX_BASE}/user/profile"
+            res = requests.get(profile_url, headers=get_v2_headers(token), timeout=10)
+            
             if res.status_code == 200:
-                user = res.json().get('data', {}).get('user_name', 'User')
-                st.sidebar.success(f"🟢 Connected: {user}")
+                user_data = res.json().get('data', {})
+                user_name = user_data.get('user_name', 'Connected User')
+                st.sidebar.success(f"🟢 Connected: {user_name}")
                 is_connected = True
             elif res.status_code == 401:
-                st.sidebar.error("🔴 Token Expired (Generated before 3:30 AM IST)")
+                st.sidebar.error("🔴 Token Expired (Daily 3:30 AM IST reset)")
+            elif res.status_code == 404:
+                st.sidebar.error("🔴 404 Error: Incorrect API Endpoint")
             else:
-                st.sidebar.error("f🔴 Connection Failed: {res.status_code}")
-        except:
+                st.sidebar.error(f"🔴 Connection Failed: {res.status_code}")
+        except Exception:
             st.sidebar.error("🔴 Network/Timeout Error")
 else:
-    st.sidebar.success("🟢 Connected: Yahoo Finance (Free)")
+    st.sidebar.success("🟢 Connected: Yahoo Finance")
     is_connected = True
 
 # ----------------------------- Main Dashboard ----------------------------- #
 st.title("📈 Smart Breakout Hub")
-st.markdown("Identifies Nifty 500 stocks breaking 20-day high resistance with >1.5x volume surge.")
+st.markdown("Automated scan for 20-day high breakouts with volume surge.")
 
 if st.sidebar.button("🔍 Run Nifty 500 Scan") and is_connected:
     mapping = get_mapping()
@@ -108,25 +116,25 @@ if st.sidebar.button("🔍 Run Nifty 500 Scan") and is_connected:
     results = []
     
     pb = st.progress(0)
-    status = st.empty()
+    status_label = st.empty()
     
     for i, t in enumerate(tickers):
         symbol = t.replace(".NS", "")
-        status.text(f"Scanning {symbol} ({i+1}/{len(tickers)})...")
+        status_label.text(f"Scanning {symbol} ({i+1}/{len(tickers)})...")
         
         df = None
         if source == "Upstox":
-            # SAFETY FIX: Ensure key exists before passing to fetcher
+            # Safety Check: Skip if ticker is missing from Upstox master
             key = mapping.get(symbol)
             if key:
                 df = fetch_upstox(token, key)
             else:
-                continue # Skip if ticker not in Upstox list
+                continue 
         else:
             df = fetch_yahoo(t)
             time.sleep(0.3) # Rate limit for Yahoo
         
-        # Screener Logic
+        # Breakout Logic
         if df is not None and not df.empty and len(df) > 50:
             df['Resist'] = df['High'].rolling(20).max().shift(1)
             df['Avg_Vol'] = df['Volume'].rolling(20).mean().shift(1)
@@ -141,7 +149,7 @@ if st.sidebar.button("🔍 Run Nifty 500 Scan") and is_connected:
         
         pb.progress((i + 1) / len(tickers))
     
-    status.success(f"✅ Scan Finished! Found {len(results)} breakouts.")
+    status_label.success(f"✅ Found {len(results)} breakouts!")
     pd.DataFrame(results, columns=["Ticker", "Price", "Vol_Ratio"]).to_csv("breakout_results.csv", index=False)
     st.rerun()
 
@@ -152,33 +160,10 @@ if os.path.exists("breakout_results.csv"):
         if not df_res.empty:
             st.subheader("Latest Detected Breakouts")
             st.dataframe(df_res.style.background_gradient(subset=['Vol_Ratio'], cmap='Greens'), use_container_width=True)
-            st.download_button("📥 Export Results as CSV", df_res.to_csv(index=False), "breakouts.csv")
+            st.download_button("📥 Download CSV", df_res.to_csv(index=False), "breakouts.csv")
         else:
-            st.info("No breakout stocks detected in the latest scan.")
+            st.info("No breakout stocks detected in the last scan.")
     except:
-        st.error("Error reading data file. Try running a new scan.")
-
-
-# Use the full V2 path for connection testing
-if source == "Upstox" and token:
-    try:
-        val_url = "https://api.upstox.com/v2/user/profile"
-        headers = {
-            'Accept': 'application/json',
-            'Authorization': f'Bearer {token}',
-            'Api-Version': '2.0'
-        }
-        res = requests.get(val_url, headers=headers, timeout=10)
-        
-        if res.status_code == 200:
-            st.sidebar.success(f"🟢 Connected: {res.json()['data']['user_name']}")
-            is_connected = True
-        elif res.status_code == 404:
-            st.sidebar.error("🔴 Connection Failed: 404 (Incorrect Endpoint URL)")
-        else:
-            st.sidebar.error(f"🔴 Connection Failed: {res.status_code}")
-    except requests.exceptions.RequestException:
-        st.sidebar.error("🔴 Network Error")
-
+        st.error("Error reading data. Please run a new scan.")
 else:
-    st.warning("No data found. Select a source and click 'Run Nifty 500 Scan' to begin.")
+    st.warning("No data found. Start a scan from the sidebar.")
