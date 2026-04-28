@@ -24,7 +24,7 @@ def get_v2_headers(token):
 @st.cache_data(ttl=86400)
 def get_mapping():
     """Downloads official Upstox Master to map NSE Tickers to Keys."""
-    url = "https://upstox.com"
+    url = "https://api.upstox.com/v2/user/profile"
     try:
         response = requests.get(url, timeout=20)
         content = gzip.decompress(response.content)
@@ -91,7 +91,7 @@ if source == "Upstox":
             elif res.status_code == 401:
                 st.sidebar.error("🔴 Token Expired (Generated before 3:30 AM IST)")
             else:
-                st.sidebar.error(f"🔴 Connection Failed: {res.status_code}")
+                st.sidebar.error("🔴 Connection Failed: {res.status_code}")
         except:
             st.sidebar.error("🔴 Network/Timeout Error")
 else:
