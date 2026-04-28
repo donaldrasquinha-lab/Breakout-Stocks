@@ -79,12 +79,30 @@ if st.sidebar.button("🔍 Run Nifty 500 Scan") and is_connected:
             time.sleep(0.4)
 
         if df is not None and not df.empty and len(df) > 50:
-            df['Resist'] = df['High'].rolling(20).max().shift(1)
-            df['Avg_Vol'] = df['Volume'].rolling(20).mean().shift(1)
-            last = df.iloc[-1]
-            if last['Close'] > last['Resist'] and last['Volume'] > (last['Avg_Vol'] * 1.5):
-                results.append({"Ticker": symbol, "Price": round(float(last['Close']), 2), "Vol_Ratio": round(float(last['Volume']/last['Avg_Vol']), 2)})
-        pb.progress((i + 1) / len(tickers))
+    df['Resist'] = df['High'].rolling(20).max().shift(1)
+    df['Avg_Vol'] = df['Volume'].rolling(20).mean().shift(1)
+    
+    # Get the last row
+    last = df.iloc[-1]
+    
+    try:
+        # Convert to float to prevent Series comparison errors
+        close_price = float(last['Close'])
+        resist_level = float(last['Resist'])
+        volume = float(last['Volume'])
+        avg_volume = float(last['Avg_Vol'])
+        
+        # Core Breakout Logic
+        if close_price > resist_level and volume > (avg_volume * 1.5):
+            results.append({
+                "Ticker": symbol, 
+                "Price": round(close_price, 2), 
+                "Vol_Ratio": round(volume / avg_volume, 2)
+            })
+    except (ValueError, TypeError):
+        # Skip if data conversion fails
+        continue
+
     
     # CRITICAL: Always save with headers even if empty
     pd.DataFrame(results, columns=headers).to_csv("breakout_results.csv", index=False)
