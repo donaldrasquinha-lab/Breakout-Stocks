@@ -26,7 +26,7 @@ jobs:
           pip install pandas requests yfinance niftystocks plotly
 
       - name: Run Breakout Scanner
-        run: breakoutdashapp.pyy # Ensure your python script is named scanner.py
+        run: breakoutdashapp.py # Ensure your python script is named scanner.py
 
       - name: Commit and Push CSV
         run: |
