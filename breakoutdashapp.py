@@ -77,3 +77,34 @@ try:
                        mime="text/csv")
 except FileNotFoundError:
     st.info("No data available. Click 'Run Live Scan' or wait for the scheduled automation.")
+import os
+
+# ... (rest of your imports and functions) ...
+
+# 3. UI Layout
+st.set_page_config(page_title="Nifty Breakout Tracker", layout="wide")
+st.title("🚀 Real-Time Breakout Screener")
+
+# Sidebar for controls
+if st.sidebar.button('🔍 Run Live Scan Now'):
+    tickers = ns.get_nifty500_with_ns()[:50] 
+    live_df = run_live_scan(tickers)
+    live_df.to_csv("breakout_results.csv", index=False)
+    st.rerun() # Refresh the app to show new data
+
+# Safe way to load the CSV
+if os.path.exists("breakout_results.csv"):
+    df = pd.read_csv("breakout_results.csv")
+    
+    # Check if the file is empty or has data
+    if not df.empty:
+        st.subheader("Latest Detected Breakouts")
+        st.dataframe(df.style.highlight_max(axis=0, subset=['Vol_Ratio']), use_container_width=True)
+        
+        st.download_button("📥 Download Results", 
+                           data=df.to_csv(index=False), 
+                           file_name="breakouts.csv")
+    else:
+        st.info("The scan completed, but no breakout stocks were found today.")
+else:
+    st.warning("⚠️ No data file found. Please click 'Run Live Scan' in the sidebar to generate the first report.")
