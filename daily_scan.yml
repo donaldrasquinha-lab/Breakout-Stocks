@@ -1,19 +1,16 @@
-name: Daily Stock Breakout Scan
+name: Daily Upstox Data Pull
 
 on:
   schedule:
-    # 10:00 AM UTC is 3:30 PM IST (Market Close)
-    - cron: '0 10 * * 1-5'
-  workflow_dispatch: # Allows you to run it manually from the "Actions" tab
+    # Runs at 11:00 AM UTC (4:30 PM IST) every weekday
+    - cron: '0 11 * * 1-5'
+  workflow_dispatch: # Allows manual trigger
 
 jobs:
-  scan_and_save:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # Crucial: Allows the action to write the CSV to your repo
-
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -21,17 +18,18 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
-        run: |
-          pip install pandas requests yfinance niftystocks plotly
+      - name: Install dependencies
+        run: pip install requests pandas
 
-      - name: Run Breakout Scanner
-        run: breakoutdashapp.py # Ensure your python script is named scanner.py
+      - name: Run scanner script
+        env:
+          UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
+        run: python scanner.py
 
-      - name: Commit and Push CSV
+      - name: Commit and push changes
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add breakout_results.csv
-          git commit -m "Auto-update breakout stocks: $(date +'%Y-%m-%d')" || exit 0
+          git add upstox_stock_data.csv
+          git commit -m "Auto-update stock data: $(date +'%Y-%m-%d')" || exit 0
           git push
