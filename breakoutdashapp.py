@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,19 +8,16 @@ import os
 import gzip
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from niftystocks import ns
 import yfinance as yf
 
 # ----------------------------- Page Config ----------------------------- #
 st.set_page_config(page_title="Upstox V2 Breakout Hub", page_icon="🚀", layout="wide")
 
-# Updated to the official V2 Base URL
 UPSTOX_BASE = "https://api.upstox.com/v2"
 
-# ----------------------------- Upstox API Helpers ----------------------------- #
+# ----------------------------- Helpers ----------------------------- #
 def upstox_headers(token: str) -> dict:
-    """Standard V2 Headers."""
     return {
         "Accept": "application/json",
         "Api-Version": "2.0",
@@ -27,7 +25,6 @@ def upstox_headers(token: str) -> dict:
     }
 
 def verify_token(token: str):
-    """Pings the V2 profile endpoint."""
     try:
         resp = requests.get(f"{UPSTOX_BASE}/user/profile", headers=upstox_headers(token), timeout=10)
         return resp.status_code == 200
@@ -36,8 +33,7 @@ def verify_token(token: str):
 
 @st.cache_data(ttl=86400)
 def get_upstox_master_mapping():
-    """Downloads official Upstox Master for V2 Instrument Keys."""
-    url = "https://upstox.com"
+    url = "https://api.upstox.com/v2"
     try:
         response = requests.get(url, timeout=30)
         content = gzip.decompress(response.content)
@@ -48,7 +44,7 @@ def get_upstox_master_mapping():
 
 # ----------------------------- Data Fetchers ----------------------------- #
 def fetch_upstox_v2(token, key):
-    """V2 Historical Candle Endpoint."""
+    if not key: return None # Safety Check
     to_date = datetime.now().strftime('%Y-%m-%d')
     from_date = (datetime.now() - timedelta(days=250)).strftime('%Y-%m-%d')
     safe_key = key.replace('|', '%7C')
@@ -79,8 +75,6 @@ def fetch_yahoo(ticker):
 def identify_breakout(df):
     if df is None or len(df) < 50: return None
     df = df.copy()
-    
-    # Calculate Indicators
     df['Resist'] = df['High'].rolling(20).max().shift(1)
     df['Avg_Vol'] = df['Volume'].rolling(20).mean().shift(1)
     
@@ -92,7 +86,6 @@ def identify_breakout(df):
         vol = float(last['Volume'])
         avg_vol = float(last['Avg_Vol'])
         
-        # Breakout Condition
         if close > resist and vol > (avg_vol * 1.5):
             return {
                 "Price": round(close, 2),
@@ -129,14 +122,28 @@ if st.sidebar.button("🔍 Run Nifty 500 Scan") and is_connected:
     tickers = ns.get_nifty500_with_ns()
     results = []
     
+    # Known Symbol Fixes
+    fixes = {"L&TFH.NS": "LTF", "IDFC.NS": "IDFCFIRSTB", "INOXLEISUR.NS": "PVRINOX"}
+    
     pb = st.progress(0)
     status = st.empty()
     
     for i, t in enumerate(tickers):
-        symbol = t.replace(".NS", "")
+        # Apply symbol fixes
+        symbol = fixes.get(t, t.replace(".NS", ""))
         status.text(f"Scanning {symbol}...")
         
-        df = fetch_yahoo(t) if source == "Yahoo Finance" else fetch_upstox_v2(token, mapping.get(symbol))
+        df = None
+        if source == "Yahoo Finance":
+            df = fetch_yahoo(t)
+            time.sleep(0.3)
+        else:
+            # FIX: Only fetch if key exists in mapping
+            key = mapping.get(symbol)
+            if key:
+                df = fetch_upstox_v2(token, key)
+            else:
+                continue # Skip stocks not found in Upstox Master
         
         signal = identify_breakout(df)
         if signal:
@@ -144,14 +151,22 @@ if st.sidebar.button("🔍 Run Nifty 500 Scan") and is_connected:
             results.append(signal)
             
         pb.progress((i + 1) / len(tickers))
-        if source == "Yahoo Finance": time.sleep(0.3)
     
+    status.success(f"✅ Found {len(results)} breakouts!")
     pd.DataFrame(results, columns=["Ticker", "Price", "Vol_Ratio"]).to_csv("breakout_results.csv", index=False)
     st.rerun()
 
 # ----------------------------- Display ----------------------------- #
 if os.path.exists("breakout_results.csv"):
-    df_res = pd.read_csv("breakout_results.csv")
-    if not df_res.empty:
-        st.subheader("Latest Detected Breakouts")
-        st.dataframe(df_res.style.background_gradient(subset=['Vol_Ratio'], cmap='Greens'), use_container_width=True)
+    try:
+        df_res = pd.read_csv("breakout_results.csv")
+        if not df_res.empty:
+            st.subheader("Latest Detected Breakouts")
+            st.dataframe(df_res.style.background_gradient(subset=['Vol_Ratio'], cmap='Greens'), use_container_width=True)
+            st.download_button("📥 Download Results", df_res.to_csv(index=False), "breakouts.csv")
+        else:
+            st.info("No breakouts identified. Try another scan later.")
+    except:
+        st.error("Error loading data file.")
+else:
+    st.warning("No data found. Select a provider and run a scan.")
