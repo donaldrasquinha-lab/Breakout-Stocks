@@ -24,7 +24,7 @@ jobs:
       - name: Run scanner script
         env:
           UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
-        run: python scanner.py
+        run: breakoutdashapp.py
 
       - name: Commit and push changes
         run: |
