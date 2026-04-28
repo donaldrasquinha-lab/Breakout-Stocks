@@ -13,7 +13,7 @@ import yfinance as yf
 # ----------------------------- Page Config ----------------------------- #
 st.set_page_config(page_title="Multi-Source Breakout Hub", page_icon="🚀", layout="wide")
 
-UPSTOX_BASE = "https://api.upstox.com/v"
+UPSTOX_BASE = "https://api.upstox.com/v2"
 FILE_YAHOO = "breakout_yahoo_results.csv"
 FILE_UPSTOX = "breakout_upstox_results.csv"
 
@@ -34,7 +34,7 @@ def verify_token(token: str):
 
 @st.cache_data(ttl=86400)
 def get_upstox_master_mapping():
-    url = "https://api.upstox.com/v"
+    url = "https://api.upstox.com/v2"
     try:
         response = requests.get(url, timeout=30)
         content = gzip.decompress(response.content)
