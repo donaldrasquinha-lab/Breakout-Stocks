@@ -92,42 +92,49 @@ else:
     st.sidebar.success("🟢 Connected: Yahoo Finance")
     is_connected = True
 
-# --- 5. MAIN DASHBOARD ---
+# ----------------------------- Main Dashboard ----------------------------- #
 st.title("📈 Smart Breakout Hub")
-st.markdown("Scan Nifty 500 stocks for 20-day high breakouts with volume surges.")
 
 if st.sidebar.button("🔍 Run Nifty 500 Scan") and is_connected:
     mapping = get_mapping()
     tickers = ns.get_nifty500_with_ns()
     results = []
     
+    # Manual Override for Symbol Changes
+    fixes = {"L&TFH.NS": "LTF", "LAXMIMACH.NS": "LAXMACH"}
+    
     pb = st.progress(0)
-    status_text = st.empty()
+    status = st.empty()
     
     for i, t in enumerate(tickers):
-        symbol = t.replace(".NS", "")
-        status_text.text(f"Scanning {symbol}...")
+        symbol = fixes.get(t, t.replace(".NS", ""))
+        status.text(f"Scanning {symbol}...")
         
-        df = fetch_yahoo(t) if source == "Yahoo Finance" else fetch_upstox(token, mapping.get(symbol))
+        df = None
+        if source == "Upstox":
+            key = mapping.get(symbol)
+            if key: df = fetch_upstox(token, key)
+            else: continue # Gracefully skip missing keys
+        else:
+            import yfinance as yf
+            try:
+                df = yf.download(t, period='1y', interval='1d', progress=False)
+                if not df.empty: df.columns = [c.capitalize() for c in df.columns]
+            except: continue
         
-        if df is not None and len(df) > 50:
+        if df is not None and not df.empty and len(df) > 50:
+            df['Resist'] = df['High'].rolling(20).max().shift(1)
+            df['Avg_Vol'] = df['Volume'].rolling(20).mean().shift(1)
             last = df.iloc[-1]
-            prev_high = df['High'].rolling(20).max().shift(1).iloc[-1]
-            avg_vol = df['Volume'].rolling(20).mean().shift(1).iloc[-1]
-            
-            if last['Close'] > prev_high and last['Volume'] > (avg_vol * 1.5):
-                results.append({
-                    "Ticker": symbol,
-                    "Price": round(float(last['Close']), 2),
-                    "Vol_Ratio": round(float(last['Volume'] / avg_vol), 2)
-                })
+            if last['Close'] > last['Resist'] and last['Volume'] > (last['Avg_Vol'] * vol_multiplier):
+                results.append({"Ticker": symbol, "Price": round(float(last['Close']), 2), "Vol_Ratio": round(float(last['Volume'] / last['Avg_Vol']), 2)})
         
-        if source == "Yahoo Finance": time.sleep(0.3)
         pb.progress((i + 1) / len(tickers))
     
-    status_text.success(f"✅ Found {len(results)} breakouts!")
+    status.success(f"✅ Scan Finished! Found {len(results)} breakouts.")
     pd.DataFrame(results, columns=["Ticker", "Price", "Vol_Ratio"]).to_csv("breakout_results.csv", index=False)
     st.rerun()
+
 
 # --- 6. DISPLAY ---
 CSV_FILE = "breakout_results.csv"
